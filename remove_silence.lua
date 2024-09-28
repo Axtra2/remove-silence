@@ -26,13 +26,14 @@ end
 
 local USAGE = ([[
 USAGE:
-%s input_filename [output_filename] [--skip_analysis detect_silence_file]
+%s input_filename [output_filename] [--skip_analysis detect_silence_file] [--ffmpeg_path PATH_TO_FFMPEG]
 ]]):format(arg[0])
 
 
 local input_filename = nil
 local output_filename = nil
 local skip_analysis = false
+local ffmpeg_path = ""
 
 ---@type string
 local detect_silence_filename
@@ -52,6 +53,15 @@ local FLAGS = {
         end
         skip_analysis = true
         detect_silence_filename = arg[i + 1]
+        return i + 2
+    end,
+    ["--ffmpeg_path"] = function (i)
+        if i + 1 > #arg then
+            print("error: expected path to ffmpeg after \"--ffmpeg-path\" flag")
+            print(USAGE)
+            os.exit(1)
+        end
+        ffmpeg_path = arg[i + 1]
         return i + 2
     end
 }
@@ -127,8 +137,9 @@ if skip_analysis then
 else
     print("analysing \"" .. input_filename .. "\"...")
     silence_starts_ends_table = detect_silence.detect_silence_using_ffmpeg(
+        ffmpeg_path,
         input_filename,
-        TMP_DIR .. os.tmpname(),
+        TMP_DIR .. os.tmpname():match("\\([^\\]+)$"),
         NOISE_THRESHOLD_IN_DB,
         MIN_SILENCE_DURATION_IN_SECONDS
     )
@@ -141,7 +152,7 @@ end
 
 print("detected " .. #silence_starts_ends_table .. " silent periods")
 
-local video_duration = detect_silence.get_video_duration(input_filename)
+local video_duration = detect_silence.get_video_duration(ffmpeg_path, input_filename)
 if video_duration == nil then
     print(
         "warning: failed to get video duration; " ..
@@ -184,7 +195,7 @@ end
 
 
 ---@type string
-local format_string = "ffmpeg -n -v fatal -accurate_seek %s %s -i \"%s\" \"%s\""
+local format_string = "%sffmpeg -n -v fatal -accurate_seek %s %s -i \"%s\" \"%s\""
 
 ---@type string
 local from_format = "-ss %.2f"
@@ -203,10 +214,11 @@ for index, split in ipairs(splits) do
     -- end
     local part_filename = gen_part_name(index - 1)
     local cmd = format_string:format(
+        ffmpeg_path,
         from_format:format(split.from),
         split.to == nil and "" or to_format:format(split.to),
         input_filename,
-        TMP_DIR .. "/" .. part_filename
+        part_filename
     )
     local d = math.ceil(math.log(#splits, 10))
     cmd = string.format("echo processing part %0" .. d .. "d/%d\n", index, #splits) .. cmd
@@ -223,7 +235,7 @@ os.execute(TMP_DIR .. "\\cut.bat")
 
 print("concatenating...")
 
-local concat_format = "ffmpeg -v error -f concat -safe 0 -i \"%s\" -c copy \"%s\""
+local concat_format = ffmpeg_path .. "ffmpeg -v error -f concat -safe 0 -i \"%s\" -c copy \"%s\""
 os.execute(concat_format:format(TMP_DIR .. "/list.txt", output_filename))
 
 

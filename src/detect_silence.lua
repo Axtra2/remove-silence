@@ -53,17 +53,19 @@ local function parse_detect_silence_output_file(filename)
     return parse_detect_silence_output_string(detect_silence_output_string)
 end
 
----@type fun(input_filename: string,output_filename: string, noise_threshold_in_db: number, min_silence_duration_in_seconds: number): [{from: number, to: number}]?
+---@type fun(ffmpeg_path: string, input_filename: string,output_filename: string, noise_threshold_in_db: number, min_silence_duration_in_seconds: number): [{from: number, to: number}]?
 local function detect_silence_using_ffmpeg(
+    ffmpeg_path,
     input_filename,
     output_filename,
     noise_threshold_in_db,
     min_silence_duration_in_seconds
 )
     ---@type string
-    local cmd_format = "ffmpeg -i \"%s\" -af silencedetect=n=%fdB:d=%f -f null - 2> \"%s\""
+    local cmd_format = "%sffmpeg -i \"%s\" -af silencedetect=n=%fdB:d=%f -f null - 2> \"%s\""
     ---@type string
     local cmd = cmd_format:format(
+        ffmpeg_path,
         input_filename,
         noise_threshold_in_db,
         min_silence_duration_in_seconds,
@@ -71,16 +73,17 @@ local function detect_silence_using_ffmpeg(
     )
     if not os.execute(cmd) then
         print("error: could not execute ffmpeg's silence detect")
+        print(cmd)
         return nil
     end
 
     return parse_detect_silence_output_file(output_filename)
 end
 
----@type fun(filename: string): seconds: number?
-local function get_video_duration(filename)
+---@type fun(ffmpeg_path: string, filename: string): seconds: number?
+local function get_video_duration(ffmpeg_path, filename)
     local cmd_format =
-        "ffprobe -v error -show_entries format=duration " ..
+        ffmpeg_path .. "ffprobe -v error -show_entries format=duration " ..
         "-of default=noprint_wrappers=1:nokey=1 -i \"%s\""
     local output = io.popen(cmd_format:format(filename))
     if output == nil then
